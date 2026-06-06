@@ -91,7 +91,8 @@ export const sparePartApi = {
 export const statisticsApi = {
   getOverview: (startDate: string, endDate: string) => 
     api.invoke('statistics:getOverview', { startDate, endDate }),
-  getVenueHeatmap: () => api.invoke('statistics:getVenueHeatmap')
+  getVenueHeatmap: () => api.invoke('statistics:getVenueHeatmap'),
+  savePdf: (base64: string) => api.invoke('pdf:save', base64)
 };
 
 export const ticketApi = {

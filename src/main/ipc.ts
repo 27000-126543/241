@@ -1,5 +1,7 @@
-import { ipcMain } from 'electron';
+import { ipcMain, dialog, app } from 'electron';
 import { insert, update, remove, query, getOne } from './database';
+import * as fs from 'fs';
+import * as path from 'path';
 import dayjs from 'dayjs';
 
 export function registerIpcHandlers() {
@@ -613,5 +615,41 @@ export function registerIpcHandlers() {
       comment: data.comment || ''
     });
     return { success: true };
+  });
+
+  ipcMain.handle('pdf:save', async (_, pdfData: string) => {
+    const desktopPath = app.getPath('desktop');
+    const fileName = `monthly-operation-report-${dayjs().format('YYYY-MM-DD_HHmmss')}.pdf`;
+    const defaultPath = path.join(desktopPath, fileName);
+
+    const result = await dialog.showSaveDialog({
+      title: '保存 PDF 报告',
+      defaultPath: defaultPath,
+      filters: [{ name: 'PDF Files', extensions: ['pdf'] }]
+    });
+
+    if (result.canceled || !result.filePath) {
+      return { success: false, canceled: true };
+    }
+
+    const buffer = Buffer.from(pdfData, 'base64');
+    fs.writeFileSync(result.filePath, buffer);
+
+    const exists = fs.existsSync(result.filePath);
+    const stats = fs.statSync(result.filePath);
+
+    console.log('========================================');
+    console.log('📄 PDF 报告已保存!');
+    console.log(`   路径: ${result.filePath}`);
+    console.log(`   大小: ${(stats.size / 1024).toFixed(2)} KB`);
+    console.log(`   存在: ${exists}`);
+    console.log('========================================');
+
+    return {
+      success: true,
+      filePath: result.filePath,
+      size: stats.size,
+      exists
+    };
   });
 }

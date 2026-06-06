@@ -54,7 +54,7 @@ const Statistics: React.FC = () => {
     }
   };
 
-  const exportPDF = () => {
+  const exportPDF = async () => {
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
     const centerX = pageWidth / 2;
@@ -210,8 +210,15 @@ const Statistics: React.FC = () => {
       doc.text(`Generated: ${dayjs().format('YYYY-MM-DD')}`, pageWidth - 14, 290, { align: 'right' });
     }
 
-    doc.save(`monthly-operation-report-${dayjs().format('YYYY-MM-DD')}.pdf`);
-    message.success('PDF report exported successfully!');
+    const pdfBase64 = doc.output('datauristring').split(',')[1];
+    const result = await statisticsApi.savePdf(pdfBase64);
+    
+    if (result && result.success) {
+      message.success(`PDF 报告已保存到: ${result.filePath}`);
+      console.log('PDF SAVE CONFIRMED:', result);
+    } else if (result && !result.canceled) {
+      message.error('PDF 保存失败');
+    }
   };
 
   const venueChart = stats ? {
