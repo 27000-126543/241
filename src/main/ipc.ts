@@ -614,4 +614,211 @@ export function registerIpcHandlers() {
     });
     return { success: true };
   });
+
+  ipcMain.handle('taskAdjustments:getAll', () => {
+    return query(`
+      SELECT ta.*, t.description as task_description, u.name as assignee_name
+      FROM task_adjustments ta
+      LEFT JOIN tasks t ON ta.task_id = t.id
+      LEFT JOIN users u ON ta.applicant_id = u.id
+      ORDER BY ta.created_at DESC
+    `);
+  });
+
+  ipcMain.handle('taskAdjustments:review', (_, data) => {
+    update('task_adjustments', {
+      status: data.status,
+      reviewed_by: data.reviewed_by,
+      review_note: data.review_note || '',
+      reviewed_at: dayjs().format('YYYY-MM-DD HH:mm:ss')
+    }, `id = ${data.id}`);
+
+    if (data.status === 'approved') {
+      const adj = getOne(`SELECT task_id, proposed_changes FROM task_adjustments WHERE id = ${data.id}`) as any;
+      if (adj) {
+        update('tasks', { status: 'adjusted' }, `id = ${adj.task_id}`);
+      }
+    }
+    return { success: true };
+  });
+
+  ipcMain.handle('matchStatus:getAll', () => {
+    return query(`
+      SELECT ms.*, s.start_time, s.end_time, e.name as event_name, v.name as venue_name
+      FROM match_status ms
+      LEFT JOIN schedules s ON ms.schedule_id = s.id
+      LEFT JOIN events e ON s.event_id = e.id
+      LEFT JOIN venues v ON s.venue_id = v.id
+      ORDER BY s.start_time DESC
+    `);
+  });
+
+  ipcMain.handle('matchStatus:update', (_, data) => {
+    const existing = getOne(`SELECT id FROM match_status WHERE schedule_id = ${data.schedule_id}`);
+    if (existing) {
+      update('match_status', {
+        status: data.status,
+        notes: data.notes || '',
+        actual_start: data.actual_start || null,
+        actual_end: data.actual_end || null
+      }, `schedule_id = ${data.schedule_id}`);
+    } else {
+      insert('match_status', {
+        schedule_id: data.schedule_id,
+        status: data.status,
+        notes: data.notes || '',
+        actual_start: data.actual_start || null,
+        actual_end: data.actual_end || null
+      });
+    }
+
+    if (data.status === 'interrupted' && data.emergency) {
+      insert('emergency_incidents', {
+        schedule_id: data.schedule_id,
+        type: data.emergency.type,
+        description: data.emergency.description,
+        severity: data.emergency.severity,
+        status: 'active',
+        notified_teams: 'medical,security'
+      });
+    }
+    return { success: true };
+  });
+
+  ipcMain.handle('matchResults:getBySchedule', (_, scheduleId) => {
+    return query(`SELECT * FROM match_results WHERE schedule_id = ${scheduleId} ORDER BY rank ASC`);
+  });
+
+  ipcMain.handle('matchResults:add', (_, data) => {
+    insert('match_results', {
+      schedule_id: data.schedule_id,
+      athlete_name: data.athlete_name,
+      score: data.score,
+      rank: data.rank,
+      fouls: data.fouls || 0
+    });
+    return { success: true };
+  });
+
+  ipcMain.handle('emergencyIncidents:getAll', () => {
+    return query(`
+      SELECT ei.*, s.start_time, e.name as event_name, v.name as venue_name
+      FROM emergency_incidents ei
+      LEFT JOIN schedules s ON ei.schedule_id = s.id
+      LEFT JOIN events e ON s.event_id = e.id
+      LEFT JOIN venues v ON s.venue_id = v.id
+      ORDER BY ei.created_at DESC
+    `);
+  });
+
+  ipcMain.handle('emergencyIncidents:resolve', (_, id) => {
+    update('emergency_incidents', {
+      status: 'resolved',
+      resolved_at: dayjs().format('YYYY-MM-DD HH:mm:ss')
+    }, `id = ${id}`);
+    return { success: true };
+  });
+
+  ipcMain.handle('patrolSchedules:getAll', () => {
+    return query(`
+      SELECT ps.*, sz.name as zone_name, sp.name as personnel_name
+      FROM patrol_schedules ps
+      LEFT JOIN security_zones sz ON ps.zone_id = sz.id
+      LEFT JOIN security_personnel sp ON ps.personnel_id = sp.id
+      ORDER BY ps.start_time ASC
+    `);
+  });
+
+  ipcMain.handle('patrolSchedules:generate', (_, params) => {
+    const { date } = params;
+    const zones = query('SELECT * FROM security_zones') as any[];
+    const personnel = query("SELECT * FROM security_personnel WHERE status = 'available'") as any[];
+    const generated: any[] = [];
+    let pIdx = 0;
+
+    const timeSlots = [
+      { start: '08:00:00', end: '10:00:00' },
+      { start: '10:00:00', end: '12:00:00' },
+      { start: '14:00:00', end: '16:00:00' },
+      { start: '16:00:00', end: '18:00:00' },
+      { start: '18:00:00', end: '20:00:00' }
+    ];
+
+    for (const zone of zones) {
+      for (const slot of timeSlots) {
+        const person = personnel[pIdx % personnel.length];
+        pIdx++;
+
+        const result = insert('patrol_schedules', {
+          zone_id: zone.id,
+          personnel_id: person.id,
+          start_time: `${date} ${slot.start}`,
+          end_time: `${date} ${slot.end}`,
+          status: 'scheduled'
+        });
+
+        generated.push({
+          id: result.lastInsertRowid,
+          zone_name: zone.name,
+          personnel_name: person.name,
+          start_time: `${date} ${slot.start}`,
+          end_time: `${date} ${slot.end}`
+        });
+      }
+    }
+    return generated;
+  });
+
+  ipcMain.handle('crowdData:getLatest', () => {
+    return query(`
+      SELECT cd.*, sz.name as zone_name, sz.capacity_threshold, sz.venue_id
+      FROM crowd_data cd
+      INNER JOIN (
+        SELECT zone_id, MAX(timestamp) as max_ts
+        FROM crowd_data
+        GROUP BY zone_id
+      ) latest ON cd.zone_id = latest.zone_id AND cd.timestamp = latest.max_ts
+      LEFT JOIN security_zones sz ON cd.zone_id = sz.id
+    `);
+  });
+
+  ipcMain.handle('crowdData:add', (_, data) => {
+    const timestamp = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    insert('crowd_data', {
+      zone_id: data.zone_id,
+      people_count: data.people_count,
+      anomaly_detected: data.anomaly_detected ? 1 : 0,
+      timestamp
+    });
+
+    const zone = getOne(`SELECT * FROM security_zones WHERE id = ${data.zone_id}`) as any;
+    let anomaly = false;
+
+    if (zone && data.people_count >= zone.capacity_threshold * 0.9) {
+      const existing = getOne(`SELECT id FROM alarms WHERE zone_id = ${data.zone_id} AND status = 'active'`);
+      if (!existing) {
+        insert('alarms', {
+          zone_id: data.zone_id,
+          alarm_type: 'crowd_density',
+          severity: data.people_count >= zone.capacity_threshold ? 'high' : 'medium',
+          message: `${zone.name} 人流密度达到 ${((data.people_count / zone.capacity_threshold) * 100).toFixed(1)}%，请及时处理`,
+          status: 'active'
+        });
+        anomaly = true;
+      }
+    }
+
+    if (data.anomaly_detected) {
+      insert('alarms', {
+        zone_id: data.zone_id,
+        alarm_type: 'anomaly',
+        severity: 'medium',
+        message: `${zone?.name || '区域'} 检测到异常行为`,
+        status: 'active'
+      });
+      anomaly = true;
+    }
+
+    return { success: true, anomaly };
+  });
 }
