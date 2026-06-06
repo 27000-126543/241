@@ -4,7 +4,6 @@ import { EnvironmentOutlined, TeamOutlined, SafetyOutlined, ReloadOutlined } fro
 import { statisticsApi, securityZoneApi, securityPersonnelApi, alarmApi } from '../api';
 import type { SecurityZone, SecurityPersonnel, Alarm } from '../types';
 import ReactECharts from 'echarts-for-react';
-import * as echarts from 'echarts';
 
 const { Option } = Select;
 
@@ -44,9 +43,10 @@ const VenueMap: React.FC = () => {
   const activeAlarms = alarms.filter(a => filteredZones.some(z => z.id === a.zone_id)).length;
 
   const heatmapOption = useMemo(() => {
-    const zoneRects: any[] = [];
+    const heatPoints: any[] = [];
     const personnelPoints: any[] = [];
     const alarmPoints: any[] = [];
+    const zoneLabels: any[] = [];
 
     filteredHeatData.forEach((zone: any) => {
       let coords;
@@ -57,47 +57,55 @@ const VenueMap: React.FC = () => {
       }
 
       const utilization = zone.utilization || 0;
-      let color = 'rgba(82, 196, 26, 0.6)';
-      if (utilization >= 90) color = 'rgba(255, 77, 79, 0.7)';
-      else if (utilization >= 70) color = 'rgba(250, 173, 20, 0.6)';
-      else if (utilization >= 50) color = 'rgba(24, 144, 255, 0.6)';
+      const centerX = coords.x + coords.width / 2;
+      const centerY = coords.y + coords.height / 2;
 
-      zoneRects.push({
+      const steps = 12;
+      for (let i = 0; i < steps; i++) {
+        for (let j = 0; j < steps; j++) {
+          const px = coords.x + (coords.width / steps) * (i + 0.5);
+          const py = coords.y + (coords.height / steps) * (j + 0.5);
+          const dx = (px - centerX) / (coords.width / 2);
+          const dy = (py - centerY) / (coords.height / 2);
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const weight = Math.max(0, utilization * (1 - dist * 0.7));
+          heatPoints.push([px, py, weight]);
+        }
+      }
+
+      zoneLabels.push({
         name: zone.name,
-        value: [
-          coords.x + coords.width / 2,
-          coords.y + coords.height / 2,
-          coords.width,
-          coords.height,
-          utilization
-        ],
-        itemStyle: {
-          color: color,
-          borderColor: '#333',
-          borderWidth: 2,
-          borderRadius: 4
-        },
+        value: [centerX, centerY],
         label: {
           show: true,
-          formatter: `${zone.name}\n${utilization.toFixed(0)}%`,
-          fontSize: 12,
+          formatter: `{b|${zone.name}}\n{c|${utilization.toFixed(0)}%}`,
+          fontSize: 13,
+          fontWeight: 'bold',
           color: '#fff',
-          fontWeight: 'bold'
-        }
+          textBorderColor: 'rgba(0,0,0,0.5)',
+          textBorderWidth: 2,
+          lineHeight: 20,
+          rich: {
+            b: { fontSize: 13, color: '#fff' },
+            c: { fontSize: 12, color: '#ffeb3b' }
+          }
+        },
+        symbolSize: 0
       });
 
       const zoneAlarms = alarms.filter(a => a.zone_id === zone.id && a.status === 'active');
       if (zoneAlarms.length > 0) {
         alarmPoints.push({
           name: '警报',
-          value: [coords.x + coords.width - 20, coords.y + 20],
-          symbolSize: 20,
+          value: [coords.x + coords.width - 25, coords.y + 25, zoneAlarms.length],
+          symbolSize: 24,
           itemStyle: { color: '#ff4d4f' },
           label: {
             show: true,
             formatter: zoneAlarms.length.toString(),
             color: '#fff',
-            fontWeight: 'bold'
+            fontWeight: 'bold',
+            fontSize: 12
           }
         });
       }
@@ -115,14 +123,16 @@ const VenueMap: React.FC = () => {
         personnelPoints.push({
           name: p.name,
           value: [
-            coords.x + 30 + (idx % 3) * 25,
-            coords.y + coords.height - 30 - Math.floor(idx / 3) * 25
+            coords.x + 40 + (idx % 4) * 30,
+            coords.y + coords.height - 40 - Math.floor(idx / 4) * 30
           ],
-          symbolSize: 18,
+          symbolSize: 20,
           itemStyle: {
             color: p.status === 'on_duty' ? '#1890ff' : '#8c8c8c',
             borderColor: '#fff',
-            borderWidth: 2
+            borderWidth: 3,
+            shadowBlur: 10,
+            shadowColor: 'rgba(24, 144, 255, 0.5)'
           }
         });
       }
@@ -131,25 +141,28 @@ const VenueMap: React.FC = () => {
     return {
       tooltip: {
         trigger: 'item',
+        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+        borderColor: '#333',
+        textStyle: { color: '#fff' },
         formatter: (params: any) => {
-          if (params.seriesType === 'custom') {
-            const d = params.data;
-            return `<strong>${d.name}</strong><br/>使用率: ${d.value[4].toFixed(1)}%`;
-          }
           if (params.seriesName === '安保人员') {
-            return `<strong>${params.name}</strong><br/>状态: 在岗`;
+            return `<div style="padding:4px"><strong>${params.name}</strong><br/>状态: <span style="color:#52c41a">在岗</span></div>`;
           }
           if (params.seriesName === '警报') {
-            return `<strong>警报</strong><br/>请及时处理`;
+            return `<div style="padding:4px"><strong style="color:#ff4d4f">⚠ 警报</strong><br/>区域内有 ${params.value[2]} 条警报<br/>请及时处理</div>`;
+          }
+          if (params.seriesType === 'heatmap') {
+            const util = params.value[2]?.toFixed(1) || 0;
+            return `<div style="padding:4px"><strong>人流热度</strong><br/>密度指数: ${util}</div>`;
           }
           return '';
         }
       },
       grid: {
-        left: 40,
-        right: 40,
-        top: 40,
-        bottom: 40
+        left: 30,
+        right: 30,
+        top: 30,
+        bottom: 30
       },
       xAxis: {
         type: 'value',
@@ -164,43 +177,64 @@ const VenueMap: React.FC = () => {
         show: false,
         inverse: true
       },
+      visualMap: {
+        min: 0,
+        max: 100,
+        calculable: true,
+        orient: 'horizontal',
+        left: 'center',
+        bottom: 10,
+        inRange: {
+          color: [
+            '#313695',
+            '#4575b4',
+            '#74add1',
+            '#abd9e9',
+            '#e0f3f8',
+            '#ffffbf',
+            '#fee090',
+            '#fdae61',
+            '#f46d43',
+            '#d73027',
+            '#a50026'
+          ]
+        },
+        text: ['高', '低'],
+        textStyle: { color: '#666' }
+      },
       series: [
         {
-          type: 'custom',
-          renderItem: (params: any, api: any) => {
-            const values = api.value(0);
-            const centerX = api.coord([values[0], values[1]])[0];
-            const centerY = api.coord([values[0], values[1]])[1];
-            const width = values[2] * (api.getWidth() / 600);
-            const height = values[3] * (api.getHeight() / 400);
-            
-            return {
-              type: 'rect',
-              shape: {
-                x: centerX - width / 2,
-                y: centerY - height / 2,
-                width: width,
-                height: height
-              },
-              style: params.style
-            };
-          },
-          data: zoneRects,
-          silent: false
+          name: '人流热力',
+          type: 'heatmap',
+          data: heatPoints,
+          pointSize: 28,
+          blurSize: 35,
+          minOpacity: 0.15,
+          maxOpacity: 0.8
+        },
+        {
+          name: '区域标签',
+          type: 'scatter',
+          data: zoneLabels,
+          symbol: 'circle',
+          silent: true,
+          z: 5
         },
         {
           name: '安保人员',
           type: 'scatter',
           data: personnelPoints,
           symbol: 'circle',
-          emphasis: { scale: 1.2 }
+          emphasis: { scale: 1.3 },
+          z: 10
         },
         {
           name: '警报',
           type: 'scatter',
           data: alarmPoints,
           symbol: 'diamond',
-          emphasis: { scale: 1.2 }
+          emphasis: { scale: 1.3 },
+          z: 15
         }
       ]
     };
@@ -291,33 +325,21 @@ const VenueMap: React.FC = () => {
 
       <Row gutter={[16, 16]}>
         <Col span={14}>
-          <Card title="场馆热力地图">
-            <ReactECharts option={heatmapOption} style={{ height: 400 }} />
+          <Card title="场馆热力地图 - ECharts 标准热力图">
+            <ReactECharts option={heatmapOption} style={{ height: 450 }} />
 
-            <div style={{ marginTop: 16, display: 'flex', gap: 16, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <div style={{ marginTop: 16, display: 'flex', gap: 24, justifyContent: 'center', flexWrap: 'wrap', alignItems: 'center' }}>
               <Space>
-                <div style={{ width: 20, height: 20, background: 'rgba(82, 196, 26, 0.7)', border: '1px solid #52c41a', borderRadius: 4 }} />
-                <span>正常 (&lt;50%)</span>
+                <div style={{ width: 18, height: 18, background: 'linear-gradient(135deg, #313695 0%, #a50026 100%)', borderRadius: 3 }} />
+                <span>人流热力 (低→高)</span>
               </Space>
               <Space>
-                <div style={{ width: 20, height: 20, background: 'rgba(24, 144, 255, 0.7)', border: '1px solid #1890ff', borderRadius: 4 }} />
-                <span>适中 (50-70%)</span>
+                <div style={{ width: 18, height: 18, background: '#1890ff', borderRadius: '50%', border: '2px solid #fff', boxShadow: '0 0 8px rgba(24,144,255,0.5)' }} />
+                <span>安保人员 (在岗)</span>
               </Space>
               <Space>
-                <div style={{ width: 20, height: 20, background: 'rgba(250, 173, 20, 0.7)', border: '1px solid #faad14', borderRadius: 4 }} />
-                <span>较高 (70-90%)</span>
-              </Space>
-              <Space>
-                <div style={{ width: 20, height: 20, background: 'rgba(255, 77, 79, 0.7)', border: '1px solid #ff4d4f', borderRadius: 4 }} />
-                <span>过高 (&gt;90%)</span>
-              </Space>
-              <Space>
-                <div style={{ width: 16, height: 16, background: '#1890ff', borderRadius: '50%', border: '2px solid #fff' }} />
-                <span>安保人员</span>
-              </Space>
-              <Space>
-                <div style={{ width: 16, height: 16, background: '#ff4d4f', transform: 'rotate(45deg)' }} />
-                <span>警报</span>
+                <div style={{ width: 18, height: 18, background: '#ff4d4f', transform: 'rotate(45deg)' }} />
+                <span>警报 (需处理)</span>
               </Space>
             </div>
           </Card>

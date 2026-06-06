@@ -394,6 +394,15 @@ function seedInitialData() {
     insert('match_results', { schedule_id: 4, athlete_name: '选手A', score: '6-4, 6-3', rank: 1, fouls: 0 });
     insert('match_results', { schedule_id: 4, athlete_name: '选手B', score: '4-6, 3-6', rank: 2, fouls: 1 });
   }
+
+  if (safeCount('patrol_schedules') === 0) {
+    insert('patrol_schedules', { zone_id: 1, personnel_id: 1, start_time: `${today} 08:00:00`, end_time: `${today} 10:00:00`, status: 'ongoing' });
+    insert('patrol_schedules', { zone_id: 2, personnel_id: 2, start_time: `${today} 08:00:00`, end_time: `${today} 10:00:00`, status: 'ongoing' });
+    insert('patrol_schedules', { zone_id: 3, personnel_id: 3, start_time: `${today} 10:00:00`, end_time: `${today} 12:00:00`, status: 'scheduled' });
+    insert('patrol_schedules', { zone_id: 4, personnel_id: 4, start_time: `${today} 10:00:00`, end_time: `${today} 12:00:00`, status: 'scheduled' });
+    insert('patrol_schedules', { zone_id: 5, personnel_id: 5, start_time: `${today} 14:00:00`, end_time: `${today} 16:00:00`, status: 'scheduled' });
+    insert('patrol_schedules', { zone_id: 6, personnel_id: 6, start_time: `${today} 14:00:00`, end_time: `${today} 16:00:00`, status: 'scheduled' });
+  }
 }
 
 function insert(table: string, data: Record<string, any>): { lastInsertRowid: number } {
