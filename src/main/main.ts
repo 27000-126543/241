@@ -12,18 +12,16 @@ function createWindow() {
     minWidth: 1200,
     minHeight: 800,
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
+      contextIsolation: true,
+      nodeIntegration: false,
       preload: path.join(__dirname, 'preload.js')
     }
   });
 
-  if (process.env.NODE_ENV === 'development') {
-    mainWindow.loadURL('http://localhost:5173');
-    mainWindow.webContents.openDevTools();
-  } else {
-    mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
-  }
+  const rendererPath = path.join(__dirname, '../renderer/index.html');
+  console.log('Loading renderer from:', rendererPath);
+  mainWindow.loadFile(rendererPath);
+  mainWindow.webContents.openDevTools();
 
   mainWindow.on('closed', () => {
     mainWindow = null;
